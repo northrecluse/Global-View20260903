@@ -624,4 +624,3 @@ with open(output_file, "w", encoding="utf-8") as f:
 
 print(f"全量指数（含科创50、科创100等）与9只核心ETF已成功同步，看板已更新至 {output_file}！")
 
-这个代码实现了什么功能
