@@ -7,7 +7,7 @@ import yfinance as yf
 import baostock as bs
 from requests import Session
 
-# ==================== 第一部分：数据自动获取与同步模块 ====================
+# ==================== 第一部分：数据自动获取与同步模块（加固修复版） ====================
 
 session = Session()
 session.headers.update({
@@ -52,7 +52,7 @@ indices_config = {
     "俄罗斯MOEX": {"ticker": "IMOEX.ME", "en": "MOEX Russia", "lon": 37, "lat": 55, "filename": "俄罗斯RTS指数_IMOEX_history.csv", "source": "yf"},
 }
 
-# 2. 美国核心 ETF 资产配置（严格规范在非洲大陆内部的 3x3 矩阵区域内，整齐美观不重叠）
+# 2. 美国核心 ETF 资产配置
 etfs_config = {
     "QQQ": {"ticker": "QQQ", "en": "Invesco QQQ Trust", "lon": 15, "lat": 22, "filename": "QQQ_ETF_history.csv", "source": "yf"},
     "QQQM": {"ticker": "QQQM", "en": "Nasdaq 100 ETF", "lon": 25, "lat": 22, "filename": "QQQM_ETF_history.csv", "source": "yf"},
@@ -71,7 +71,7 @@ data_dir = "market_history_data"
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 
-print("开始同步全球指数、科创板及扩展版核心 ETF 历史数据...\n")
+print("开始同步全球指数、科创板及扩展版核心 ETF 历史数据（采用 60 天回溯覆盖策略以防修正失真）...\n")
 today_str = (pd.Timestamp.today() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
 for name, info in all_configs.items():
@@ -91,7 +91,8 @@ for name, info in all_configs.items():
                     df_local = df_local.sort_values("Date").reset_index(drop=True)
 
                     last_date = df_local["Date"].max()
-                    start_date = (last_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+                    # 回溯 60 天重新下载并覆盖，以同步雅虎官方的分红派息与历史数据修正
+                    start_date = (last_date - pd.Timedelta(days=60)).strftime("%Y-%m-%d")
 
                     df_new = yf.download(ticker, start=start_date, end=today_str, progress=False, session=session)
                     if not df_new.empty:
@@ -100,6 +101,7 @@ for name, info in all_configs.items():
                         df_new = df_new.reset_index()
                         df_new["Date"] = pd.to_datetime(df_new["Date"]).dt.tz_localize(None)
 
+                        df_local = df_local[df_local["Date"] < pd.Timestamp(start_date)]
                         df_combined = pd.concat([df_local, df_new]).drop_duplicates(subset=["Date"])
                         df_combined = df_combined.sort_values("Date").reset_index(drop=True)
                         df_combined.to_csv(file_path, index=False)
@@ -128,7 +130,7 @@ for name, info in all_configs.items():
                 try:
                     df_local = pd.read_csv(file_path, parse_dates=["Date"])
                     last_date_str = df_local["Date"].max().strftime("%Y-%m-%d")
-                    query_start_date = (pd.Timestamp(last_date_str) - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+                    query_start_date = (pd.Timestamp(last_date_str) - pd.Timedelta(days=10)).strftime("%Y-%m-%d")
                 except:
                     pass
 
@@ -153,7 +155,11 @@ for name, info in all_configs.items():
                 df_bs["Adj Close"] = df_bs["Close"]
 
                 if os.path.exists(file_path):
-                    df_local = pd.read_csv(file_path)
+                    df_local = pd.read_csv(file_path, parse_dates=["Date"])
+                    df_local["Date"] = pd.to_datetime(df_local["Date"]).dt.tz_localize(None)
+                    df_bs["Date"] = pd.to_datetime(df_bs["Date"]).dt.tz_localize(None)
+
+                    df_local = df_local[df_local["Date"] < pd.Timestamp(query_start_date)]
                     df_combined = pd.concat([df_local, df_bs]).drop_duplicates(subset=["Date"])
                     df_combined = df_combined.sort_values("Date").reset_index(drop=True)
                     df_combined.to_csv(file_path, index=False)
@@ -622,5 +628,4 @@ output_file = "global_market_bubble_map.html"
 with open(output_file, "w", encoding="utf-8") as f:
     f.write(html_content)
 
-print(f"全量指数（含科创50、科创100等）与9只核心ETF已成功同步，看板已更新至 {output_file}！")
-
+print(f"全量指数与核心 ETF 已成功同步，看板已更新至 {output_file}！")
