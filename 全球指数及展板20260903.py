@@ -7,7 +7,7 @@ import yfinance as yf
 import baostock as bs
 from requests import Session
 
-# ==================== 第一部分：数据自动获取与同步模块（加固修复版） ====================
+# ==================== 第一部分：数据自动获取与同步模块（全量覆盖修复版） ====================
 
 session = Session()
 session.headers.update({
@@ -71,7 +71,7 @@ data_dir = "market_history_data"
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 
-print("开始同步全球指数、科创板及扩展版核心 ETF 历史数据（采用 60 天回溯覆盖策略以防修正失真）...\n")
+print("开始同步全球指数与核心 ETF 历史数据（启用每次全量重新记录与覆盖功能）...\n")
 today_str = (pd.Timestamp.today() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
 for name, info in all_configs.items():
@@ -79,48 +79,25 @@ for name, info in all_configs.items():
     file_path = os.path.join(data_dir, info["filename"])
     source = info["source"]
 
-    if os.path.exists(file_path) and os.path.getsize(file_path) < 2048:
-        os.remove(file_path)
-
     if source == "yf":
+        # 核心改进：每次运行直接重新获取全量历史数据并全量覆盖本地文件，确保与网页端完全一致
         for attempt in range(3):
             try:
-                if os.path.exists(file_path):
-                    df_local = pd.read_csv(file_path, parse_dates=["Date"])
-                    df_local["Date"] = pd.to_datetime(df_local["Date"]).dt.tz_localize(None)
-                    df_local = df_local.sort_values("Date").reset_index(drop=True)
-
-                    last_date = df_local["Date"].max()
-                    # 回溯 60 天重新下载并覆盖，以同步雅虎官方的分红派息与历史数据修正
-                    start_date = (last_date - pd.Timedelta(days=60)).strftime("%Y-%m-%d")
-
-                    df_new = yf.download(ticker, start=start_date, end=today_str, progress=False, session=session)
-                    if not df_new.empty:
-                        if isinstance(df_new.columns, pd.MultiIndex):
-                            df_new.columns = df_new.columns.get_level_values(0)
-                        df_new = df_new.reset_index()
-                        df_new["Date"] = pd.to_datetime(df_new["Date"]).dt.tz_localize(None)
-
-                        df_local = df_local[df_local["Date"] < pd.Timestamp(start_date)]
-                        df_combined = pd.concat([df_local, df_new]).drop_duplicates(subset=["Date"])
-                        df_combined = df_combined.sort_values("Date").reset_index(drop=True)
-                        df_combined.to_csv(file_path, index=False)
-                else:
-                    df_all = yf.download(ticker, period="max", progress=False, session=session)
-                    if not df_all.empty:
-                        if isinstance(df_all.columns, pd.MultiIndex):
-                            df_all.columns = df_all.columns.get_level_values(0)
-                        df_all = df_all.reset_index()
-                        df_all["Date"] = pd.to_datetime(df_all["Date"]).dt.tz_localize(None)
-                        df_all = df_all.sort_values("Date").reset_index(drop=True)
-                        df_all.to_csv(file_path, index=False)
-                break
+                df_all = yf.download(ticker, period="max", progress=False, session=session)
+                if not df_all.empty:
+                    if isinstance(df_all.columns, pd.MultiIndex):
+                        df_all.columns = df_all.columns.get_level_values(0)
+                    df_all = df_all.reset_index()
+                    df_all["Date"] = pd.to_datetime(df_all["Date"]).dt.tz_localize(None)
+                    df_all = df_all.sort_values("Date").reset_index(drop=True)
+                    df_all.to_csv(file_path, index=False)
+                    break
             except Exception as e:
                 if attempt < 2:
-                    time.sleep((attempt + 1) * 5)
+                    time.sleep((attempt + 1) * 3)
                 else:
-                    print(f"[{name}] yfinance 获取失败: {e}")
-        time.sleep(random.uniform(1.0, 2.0))
+                    print(f"[{name}] yfinance 全量获取失败: {e}")
+        time.sleep(random.uniform(0.5, 1.0))
 
     elif source == "bs":
         lg = bs.login()
@@ -628,4 +605,4 @@ output_file = "global_market_bubble_map.html"
 with open(output_file, "w", encoding="utf-8") as f:
     f.write(html_content)
 
-print(f"全量指数与核心 ETF 已成功同步，看板已更新至 {output_file}！")
+print(f"全量指数与核心 ETF 已成功重新记录并覆盖，看板已更新至 {output_file}！")
